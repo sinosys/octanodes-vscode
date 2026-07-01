@@ -5,7 +5,8 @@ import * as vscode from "vscode";
 import type { Session } from "./auth";
 import type { Issue, IssueStatus } from "./types";
 
-export type StatusFilter = "all" | IssueStatus;
+// "active" = 미완료만 (종료·반려 제외)
+export type StatusFilter = "all" | "active" | IssueStatus;
 
 const STATUS_ICON: Record<string, string> = {
   open: "circle-outline",
@@ -41,10 +42,10 @@ class ProjectNode extends vscode.TreeItem {
 
 export class IssueNode extends vscode.TreeItem {
   constructor(public readonly issue: Issue) {
-    super(issue.title, vscode.TreeItemCollapsibleState.None);
+    super(`#${issue.id} ${issue.title}`, vscode.TreeItemCollapsibleState.None);
     const status = issue.status;
     this.iconPath = new vscode.ThemeIcon(STATUS_ICON[status] || "circle-outline");
-    const bits = [`#${issue.id}`, STATUS_LABEL[status] || status];
+    const bits = [STATUS_LABEL[status] || status];
     if (issue.priority && issue.priority !== "medium") bits.push(PRIORITY_LABEL[issue.priority] || issue.priority);
     if (issue.comment_count) bits.push(`💬${issue.comment_count}`);
     this.description = bits.join(" · ");
@@ -74,7 +75,7 @@ export class IssuesProvider implements vscode.TreeDataProvider<Node> {
   private issues: Issue[] = [];
   private loaded = false;
   private error: string | undefined;
-  filter: StatusFilter = "all";
+  filter: StatusFilter = "active";
 
   constructor(private session: Session) {
     session.onDidChange(() => {
@@ -113,6 +114,9 @@ export class IssuesProvider implements vscode.TreeDataProvider<Node> {
 
   private filtered(): Issue[] {
     if (this.filter === "all") return this.issues;
+    if (this.filter === "active") {
+      return this.issues.filter((i) => i.status !== "closed" && i.status !== "rejected");
+    }
     return this.issues.filter((i) => i.status === this.filter);
   }
 

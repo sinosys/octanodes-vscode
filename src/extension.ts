@@ -53,18 +53,21 @@ export function activate(context: vscode.ExtensionContext) {
   reg("octanodes.openIssue", (issueId: number) => details.open(issueId));
 
   reg("octanodes.setFilter", async () => {
+    const mark = (v: StatusFilter) => (tree.filter === v ? "$(check) " : "");
     const pick = await vscode.window.showQuickPick(
       [
-        { label: "전체", value: "all" as StatusFilter },
-        { label: "열림", value: "open" as StatusFilter },
-        { label: "진행중", value: "in_progress" as StatusFilter },
-        { label: "확인대기", value: "resolved" as StatusFilter },
-        { label: "종료", value: "closed" as StatusFilter },
+        { label: `${mark("active")}미완료만 (종료 제외)`, value: "active" as StatusFilter },
+        { label: `${mark("all")}전체`, value: "all" as StatusFilter },
+        { label: `${mark("open")}열림`, value: "open" as StatusFilter },
+        { label: `${mark("in_progress")}진행중`, value: "in_progress" as StatusFilter },
+        { label: `${mark("resolved")}확인대기`, value: "resolved" as StatusFilter },
+        { label: `${mark("closed")}종료`, value: "closed" as StatusFilter },
       ],
       { title: "상태 필터", placeHolder: "표시할 일감 상태" },
     );
     if (pick) {
       tree.filter = pick.value;
+      treeView.message = pick.value === "active" ? undefined : `필터: ${pick.label.replace("$(check) ", "")}`;
       tree.refresh();
     }
   });
