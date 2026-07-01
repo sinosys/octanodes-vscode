@@ -1,0 +1,129 @@
+{
+  "name": "octanodes",
+  "displayName": "OctaNodes",
+  "description": "VSCode 에서 OctaNodes 일감을 조회·등록·처리합니다. (AI 없이 REST API 직접 연동)",
+  "version": "0.1.0",
+  "publisher": "sinosys",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "octanodes",
+    "issue",
+    "task",
+    "project management",
+    "redmine"
+  ],
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sinosys/octanodes-vscode.git"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "octanodes",
+          "title": "OctaNodes",
+          "icon": "media/sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "octanodes": [
+        {
+          "id": "octanodes.issues",
+          "name": "내 일감",
+          "icon": "media/sidebar.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "octanodes.issues",
+        "contents": "OctaNodes 에 로그인하면 내 일감이 표시됩니다.\n[로그인 (토큰 입력)](command:octanodes.login)\n\n토큰은 OctaNodes 웹의 내 정보 → 보안 탭에서 발급합니다."
+      }
+    ],
+    "commands": [
+      {
+        "command": "octanodes.login",
+        "title": "OctaNodes: 로그인 (토큰 입력)",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "octanodes.logout",
+        "title": "OctaNodes: 로그아웃"
+      },
+      {
+        "command": "octanodes.refresh",
+        "title": "OctaNodes: 새로고침",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "octanodes.createIssue",
+        "title": "OctaNodes: 일감 등록",
+        "icon": "$(add)"
+      },
+      {
+        "command": "octanodes.openIssue",
+        "title": "OctaNodes: 일감 상세 열기"
+      },
+      {
+        "command": "octanodes.changeStatus",
+        "title": "OctaNodes: 상태 변경",
+        "icon": "$(circle-outline)"
+      },
+      {
+        "command": "octanodes.addComment",
+        "title": "OctaNodes: 댓글 추가",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "octanodes.setFilter",
+        "title": "OctaNodes: 상태 필터",
+        "icon": "$(filter)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "octanodes.createIssue", "when": "view == octanodes.issues", "group": "navigation@1" },
+        { "command": "octanodes.setFilter", "when": "view == octanodes.issues", "group": "navigation@2" },
+        { "command": "octanodes.refresh", "when": "view == octanodes.issues", "group": "navigation@3" }
+      ],
+      "view/item/context": [
+        { "command": "octanodes.changeStatus", "when": "view == octanodes.issues && viewItem == issue", "group": "inline@1" },
+        { "command": "octanodes.addComment", "when": "view == octanodes.issues && viewItem == issue", "group": "inline@2" }
+      ]
+    },
+    "configuration": {
+      "title": "OctaNodes",
+      "properties": {
+        "octanodes.baseUrl": {
+          "type": "string",
+          "default": "https://octanodes.com/api/v1",
+          "description": "OctaNodes API 베이스 URL. 온프렘/로컬 개발 시 변경 (예: http://localhost:8000/api/v1)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "compile": "tsc --noEmit",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
