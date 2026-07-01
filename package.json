@@ -2,7 +2,7 @@
   "name": "octanodes",
   "displayName": "OctaNodes",
   "description": "VSCode 에서 OctaNodes 일감을 조회·등록·처리합니다. (AI 없이 REST API 직접 연동)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "sinosys",
   "license": "MIT",
   "engines": {
