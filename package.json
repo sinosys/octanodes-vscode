@@ -2,7 +2,7 @@
   "name": "octanodes",
   "displayName": "OctaNodes",
   "description": "VSCode 에서 OctaNodes 일감을 조회·등록·처리합니다. (AI 없이 REST API 직접 연동)",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "sinosys",
   "license": "MIT",
   "engines": {
@@ -28,7 +28,9 @@
     "url": "https://github.com/sinosys/octanodes-vscode/issues"
   },
   "main": "./dist/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -92,13 +94,30 @@
         "command": "octanodes.setFilter",
         "title": "OctaNodes: 상태 필터",
         "icon": "$(filter)"
+      },
+      {
+        "command": "octanodes.setGrouping",
+        "title": "OctaNodes: 그룹 기준",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "octanodes.search",
+        "title": "OctaNodes: 일감 검색",
+        "icon": "$(search)"
       }
     ],
     "menus": {
+      "commandPalette": [
+        { "command": "octanodes.openIssue", "when": "false" },
+        { "command": "octanodes.changeStatus", "when": "false" },
+        { "command": "octanodes.addComment", "when": "false" }
+      ],
       "view/title": [
-        { "command": "octanodes.createIssue", "when": "view == octanodes.issues", "group": "navigation@1" },
-        { "command": "octanodes.setFilter", "when": "view == octanodes.issues", "group": "navigation@2" },
-        { "command": "octanodes.refresh", "when": "view == octanodes.issues", "group": "navigation@3" }
+        { "command": "octanodes.search", "when": "view == octanodes.issues", "group": "navigation@1" },
+        { "command": "octanodes.createIssue", "when": "view == octanodes.issues", "group": "navigation@2" },
+        { "command": "octanodes.setFilter", "when": "view == octanodes.issues", "group": "navigation@3" },
+        { "command": "octanodes.setGrouping", "when": "view == octanodes.issues", "group": "navigation@4" },
+        { "command": "octanodes.refresh", "when": "view == octanodes.issues", "group": "navigation@5" }
       ],
       "view/item/context": [
         { "command": "octanodes.changeStatus", "when": "view == octanodes.issues && viewItem == issue", "group": "inline@1" },
@@ -112,6 +131,12 @@
           "type": "string",
           "default": "https://octanodes.com/api/v1",
           "description": "OctaNodes API 베이스 URL. 온프렘/로컬 개발 시 변경 (예: http://localhost:8000/api/v1)."
+        },
+        "octanodes.refreshInterval": {
+          "type": "number",
+          "default": 120,
+          "minimum": 0,
+          "description": "자동 새로고침 주기(초). 상태바 일감 수와 새 일감/상태 변경 알림을 갱신합니다. 0 이면 자동 새로고침을 끕니다."
         }
       }
     }

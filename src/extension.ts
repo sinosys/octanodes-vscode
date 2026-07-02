@@ -1,10 +1,11 @@
 // OctaNodes VSCode 확장 진입점.
-// 명령 등록 + 트리뷰 + 상세 웹뷰 배선. AI 미사용, REST API 직접 호출.
+// 명령 등록 + 트리뷰 + 상세 웹뷰 + 상태바 배선. AI 미사용, REST API 직접 호출.
 
 import * as vscode from "vscode";
 import { Session } from "./auth";
 import { IssueDetailPanels } from "./detail";
-import { IssueNode, IssuesProvider, StatusFilter } from "./tree";
+import { StatusBar } from "./statusbar";
+import { Grouping, IssueNode, IssuesProvider, StatusFilter } from "./tree";
 import type { IssuePriority, IssueStatus, Project } from "./types";
 
 const STATUS_CHOICES: { label: string; value: IssueStatus }[] = [
@@ -24,13 +25,14 @@ const PRIORITY_CHOICES: { label: string; value: IssuePriority }[] = [
 
 export function activate(context: vscode.ExtensionContext) {
   const session = new Session(context.secrets);
-  const tree = new IssuesProvider(session);
+  const tree = new IssuesProvider(session, context.globalState);
   const details = new IssueDetailPanels(session, () => tree.refresh());
 
   session.syncContext();
 
   const treeView = vscode.window.createTreeView("octanodes.issues", { treeDataProvider: tree });
   context.subscriptions.push(treeView);
+  context.subscriptions.push(new StatusBar(session, tree));
 
   const reg = (id: string, fn: (...args: any[]) => any) =>
     context.subscriptions.push(vscode.commands.registerCommand(id, fn));
@@ -48,7 +50,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage("OctaNodes 에서 로그아웃했습니다.");
   });
 
-  reg("octanodes.refresh", () => tree.refresh());
+  reg("octanodes.refresh", () => tree.reload());
 
   reg("octanodes.openIssue", (issueId: number) => details.open(issueId));
 
@@ -66,11 +68,25 @@ export function activate(context: vscode.ExtensionContext) {
       { title: "상태 필터", placeHolder: "표시할 일감 상태" },
     );
     if (pick) {
-      tree.filter = pick.value;
+      await tree.setFilter(pick.value);
       treeView.message = pick.value === "active" ? undefined : `필터: ${pick.label.replace("$(check) ", "")}`;
-      tree.refresh();
     }
   });
+
+  reg("octanodes.setGrouping", async () => {
+    const mark = (v: Grouping) => (tree.grouping === v ? "$(check) " : "");
+    const pick = await vscode.window.showQuickPick(
+      [
+        { label: `${mark("project")}프로젝트별`, value: "project" as Grouping },
+        { label: `${mark("status")}상태별`, value: "status" as Grouping },
+        { label: `${mark("priority")}우선순위별`, value: "priority" as Grouping },
+      ],
+      { title: "그룹 기준", placeHolder: "일감을 어떻게 묶을지" },
+    );
+    if (pick) await tree.setGrouping(pick.value);
+  });
+
+  reg("octanodes.search", () => runSearch(session, details));
 
   reg("octanodes.changeStatus", async (node?: IssueNode) => {
     const issue = node?.issue;
@@ -91,7 +107,7 @@ export function activate(context: vscode.ExtensionContext) {
     try {
       await api.setStatus(issue.id, pick.value);
       vscode.window.showInformationMessage(`#${issue.id} 상태를 '${pick.value}' 로 변경했습니다.`);
-      tree.refresh();
+      tree.reload();
     } catch (e) {
       vscode.window.showErrorMessage(`상태 변경 실패: ${(e as Error).message}`);
     }
@@ -174,12 +190,79 @@ export function activate(context: vscode.ExtensionContext) {
         priority: pri?.value ?? "medium",
       });
       vscode.window.showInformationMessage(`일감 #${created.id} 을 등록했습니다.`);
-      tree.refresh();
+      tree.reload();
       details.open(created.id);
     } catch (e) {
       vscode.window.showErrorMessage(`일감 등록 실패: ${(e as Error).message}`);
     }
   });
+}
+
+/** 라이브 검색 QuickPick — 입력할 때마다 /issues/search 호출(디바운스). */
+async function runSearch(session: Session, details: IssueDetailPanels): Promise<void> {
+  const api = await session.getApi();
+  if (!api) {
+    vscode.window.showWarningMessage("먼저 로그인하세요.");
+    return;
+  }
+
+  const STATUS_LABEL: Record<string, string> = {
+    open: "열림", in_progress: "진행중", resolved: "확인대기", closed: "종료", rejected: "반려",
+  };
+
+  const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { issueId?: number }>();
+  qp.title = "일감 검색";
+  qp.placeholder = "제목 또는 #번호로 검색";
+  qp.matchOnDescription = true;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let seq = 0;
+
+  const doSearch = (q: string) => {
+    const mySeq = ++seq;
+    qp.busy = true;
+    api
+      .search(q)
+      .then((items) => {
+        if (mySeq !== seq) return; // 오래된 응답 무시
+        qp.items = items.map((i) => ({
+          label: `#${i.id} ${i.title}`,
+          description: [i.project_name, STATUS_LABEL[i.status] || i.status].filter(Boolean).join(" · "),
+          issueId: i.id,
+        }));
+      })
+      .catch((e) => {
+        if (mySeq === seq) qp.items = [{ label: `오류: ${(e as Error).message}` }];
+      })
+      .finally(() => {
+        if (mySeq === seq) qp.busy = false;
+      });
+  };
+
+  qp.onDidChangeValue((v) => {
+    if (timer) clearTimeout(timer);
+    const q = v.trim();
+    if (!q) {
+      qp.items = [];
+      return;
+    }
+    timer = setTimeout(() => doSearch(q), 250);
+  });
+
+  qp.onDidAccept(() => {
+    const sel = qp.selectedItems[0];
+    if (sel?.issueId != null) {
+      details.open(sel.issueId);
+      qp.hide();
+    }
+  });
+
+  qp.onDidHide(() => {
+    if (timer) clearTimeout(timer);
+    qp.dispose();
+  });
+
+  qp.show();
 }
 
 export function deactivate() {}

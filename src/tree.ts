@@ -1,5 +1,5 @@
-// "내 일감" 트리뷰 — 프로젝트별 그룹 → 일감.
-// 상태 필터(전체/open/in_progress/resolved/closed) 지원.
+// "내 일감" 트리뷰 — 그룹(프로젝트/상태/우선순위) → 일감.
+// 상태 필터(전체/미완료/open/…) + 그룹 기준을 globalState 에 영속화.
 
 import * as vscode from "vscode";
 import type { Session } from "./auth";
@@ -7,6 +7,10 @@ import type { Issue, IssueStatus } from "./types";
 
 // "active" = 미완료만 (종료·반려 제외)
 export type StatusFilter = "all" | "active" | IssueStatus;
+export type Grouping = "project" | "status" | "priority";
+
+const FILTER_KEY = "octanodes.filter";
+const GROUPING_KEY = "octanodes.grouping";
 
 const STATUS_ICON: Record<string, string> = {
   open: "circle-outline",
@@ -31,12 +35,15 @@ const PRIORITY_LABEL: Record<string, string> = {
   urgent: "긴급",
 };
 
-class ProjectNode extends vscode.TreeItem {
-  constructor(public readonly projectName: string, count: number) {
-    super(projectName, vscode.TreeItemCollapsibleState.Expanded);
+const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+const STATUS_ORDER: Record<string, number> = { open: 0, in_progress: 1, resolved: 2, rejected: 3, closed: 4 };
+
+class GroupNode extends vscode.TreeItem {
+  constructor(public readonly key: string, label: string, count: number, icon: string) {
+    super(label, vscode.TreeItemCollapsibleState.Expanded);
     this.description = `${count}`;
-    this.iconPath = new vscode.ThemeIcon("folder");
-    this.contextValue = "project";
+    this.iconPath = new vscode.ThemeIcon(icon);
+    this.contextValue = "group";
   }
 }
 
@@ -66,22 +73,49 @@ export class IssueNode extends vscode.TreeItem {
   }
 }
 
-type Node = ProjectNode | IssueNode;
+type Node = GroupNode | IssueNode;
+
+interface GroupMeta {
+  key: string;
+  label: string;
+  icon: string;
+  order: number;
+}
 
 export class IssuesProvider implements vscode.TreeDataProvider<Node> {
   private _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private issues: Issue[] = [];
+  private _issues: Issue[] = [];
   private loaded = false;
   private error: string | undefined;
-  filter: StatusFilter = "active";
+  filter: StatusFilter;
+  grouping: Grouping;
 
-  constructor(private session: Session) {
+  constructor(private session: Session, private state: vscode.Memento) {
+    this.filter = state.get<StatusFilter>(FILTER_KEY, "active");
+    this.grouping = state.get<Grouping>(GROUPING_KEY, "project");
     session.onDidChange(() => {
       this.loaded = false;
       this.refresh();
     });
+  }
+
+  /** 현재 로드된 일감(필터 적용 전). 상태바 카운트용. */
+  get issues(): Issue[] {
+    return this._issues;
+  }
+
+  async setFilter(v: StatusFilter): Promise<void> {
+    this.filter = v;
+    await this.state.update(FILTER_KEY, v);
+    this._onDidChangeTreeData.fire();
+  }
+
+  async setGrouping(v: Grouping): Promise<void> {
+    this.grouping = v;
+    await this.state.update(GROUPING_KEY, v);
+    this._onDidChangeTreeData.fire();
   }
 
   refresh(): void {
@@ -93,31 +127,56 @@ export class IssuesProvider implements vscode.TreeDataProvider<Node> {
     return el;
   }
 
-  private async ensureLoaded(): Promise<void> {
-    if (this.loaded) return;
-    this.error = undefined;
+  private async fetch(): Promise<void> {
     const api = await this.session.getApi();
     if (!api) {
-      this.issues = [];
+      this._issues = [];
+      this.error = undefined;
       this.loaded = true;
       return;
     }
     try {
       // 필터에 closed/resolved 가 포함될 수 있으니 항상 완료 포함으로 받아 클라이언트에서 필터.
-      this.issues = await api.listMyIssues({ includeClosed: true });
+      this._issues = await api.listMyIssues({ includeClosed: true });
+      this.error = undefined;
     } catch (e) {
       this.error = (e as Error).message;
-      this.issues = [];
+      // 기존 목록은 유지 — 일시적 오류로 화면이 비지 않도록.
     }
     this.loaded = true;
   }
 
+  private async ensureLoaded(): Promise<void> {
+    if (this.loaded) return;
+    await this.fetch();
+  }
+
+  /** 강제 재조회 후 트리 갱신. 상태바 폴링에서 호출하고 최신 목록을 돌려받는다. */
+  async reload(): Promise<Issue[]> {
+    await this.fetch();
+    this._onDidChangeTreeData.fire();
+    return this._issues;
+  }
+
   private filtered(): Issue[] {
-    if (this.filter === "all") return this.issues;
+    if (this.filter === "all") return this._issues;
     if (this.filter === "active") {
-      return this.issues.filter((i) => i.status !== "closed" && i.status !== "rejected");
+      return this._issues.filter((i) => i.status !== "closed" && i.status !== "rejected");
     }
-    return this.issues.filter((i) => i.status === this.filter);
+    return this._issues.filter((i) => i.status === this.filter);
+  }
+
+  private groupOf(i: Issue): GroupMeta {
+    if (this.grouping === "status") {
+      const s = i.status;
+      return { key: s, label: STATUS_LABEL[s] || s, icon: STATUS_ICON[s] || "circle-outline", order: STATUS_ORDER[s] ?? 9 };
+    }
+    if (this.grouping === "priority") {
+      const p = i.priority || "medium";
+      return { key: p, label: PRIORITY_LABEL[p] || p, icon: "flame", order: PRIORITY_ORDER[p] ?? 9 };
+    }
+    const name = i.project_name ?? "(프로젝트 미지정)";
+    return { key: name, label: name, icon: "folder", order: 0 };
   }
 
   async getChildren(el?: Node): Promise<Node[]> {
@@ -128,27 +187,25 @@ export class IssuesProvider implements vscode.TreeDataProvider<Node> {
         item.iconPath = new vscode.ThemeIcon("error");
         return [item as Node];
       }
-      // 프로젝트별 그룹
       const list = this.filtered();
-      const groups = new Map<string, Issue[]>();
+      const groups = new Map<string, { meta: GroupMeta; items: Issue[] }>();
       for (const i of list) {
-        const key = i.project_name ?? "(프로젝트 미지정)";
-        let arr = groups.get(key);
-        if (!arr) {
-          arr = [];
-          groups.set(key, arr);
+        const meta = this.groupOf(i);
+        let g = groups.get(meta.key);
+        if (!g) {
+          g = { meta, items: [] };
+          groups.set(meta.key, g);
         }
-        arr.push(i);
+        g.items.push(i);
       }
-      const projectNodes = [...groups.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0], "ko"))
-        .map(([name, items]) => new ProjectNode(name, items.length));
-      return projectNodes;
+      return [...groups.values()]
+        .sort((a, b) => a.meta.order - b.meta.order || a.meta.label.localeCompare(b.meta.label, "ko"))
+        .map((g) => new GroupNode(g.meta.key, g.meta.label, g.items.length, g.meta.icon));
     }
-    if (el instanceof ProjectNode) {
+    if (el instanceof GroupNode) {
       return this.filtered()
-        .filter((i) => (i.project_name ?? "(프로젝트 미지정)") === el.projectName)
-        .sort((a, b) => b.id - a.id)
+        .filter((i) => this.groupOf(i).key === el.key)
+        .sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9) || b.id - a.id)
         .map((i) => new IssueNode(i));
     }
     return [];

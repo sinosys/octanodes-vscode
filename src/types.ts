@@ -50,7 +50,23 @@ export interface Me {
   name: string;
   email?: string;
   company_id?: number;
+  company_slug?: string;
+  is_operator?: boolean;
   role?: string;
+}
+
+export interface Operator {
+  id: number;
+  name: string;
+  position?: string;
+  department?: string;
+}
+
+export interface SearchItem {
+  id: number;
+  title: string;
+  project_name?: string;
+  status: IssueStatus;
 }
 
 export interface CreateIssueInput {

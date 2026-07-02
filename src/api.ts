@@ -2,7 +2,7 @@
 // mcp-server/src/index.ts 의 api() 헬퍼를 확장용으로 옮겨온 것.
 // 인증: 개인 액세스 토큰(PAT, sk_octa_...) 을 Bearer 로 전송.
 
-import type { Comment, CreateIssueInput, Issue, IssueStatus, Me, Project } from "./types";
+import type { Comment, CreateIssueInput, Issue, IssueStatus, Me, Operator, Project, SearchItem } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, public detail: string) {
@@ -88,5 +88,16 @@ export class OctaApi {
 
   listProjects(): Promise<Project[]> {
     return this.request<Project[]>("GET", "/my-projects");
+  }
+
+  /** 운영사 회원 목록 — 담당자 지정 드롭다운에 사용. */
+  listOperators(): Promise<Operator[]> {
+    return this.request<Operator[]>("GET", "/users/operators");
+  }
+
+  /** 전사 일감 키워드 검색 (제목·#번호). */
+  search(q: string, limit = 20): Promise<SearchItem[]> {
+    const qs = new URLSearchParams({ q, limit: String(limit) });
+    return this.request<SearchItem[]>("GET", `/issues/search?${qs.toString()}`);
   }
 }

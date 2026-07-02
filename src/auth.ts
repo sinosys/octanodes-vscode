@@ -3,11 +3,17 @@
 
 import * as vscode from "vscode";
 import { OctaApi } from "./api";
+import type { Me } from "./types";
 
 const SECRET_KEY = "octanodes.token";
 
 export function getBaseUrl(): string {
   return vscode.workspace.getConfiguration("octanodes").get<string>("baseUrl") || "https://octanodes.com/api/v1";
+}
+
+/** API 베이스 URL 에서 `/api/v1` 등을 떼어낸 웹 앱 오리진. 브라우저 열기용. */
+export function getWebOrigin(): string {
+  return getBaseUrl().replace(/\/api\/v\d+\/?$/, "").replace(/\/+$/, "");
 }
 
 export class Session {
@@ -32,6 +38,21 @@ export class Session {
     return new OctaApi(getBaseUrl(), token);
   }
 
+  private cachedMe: Me | undefined;
+
+  /** 내 정보 (company_slug 등). 첫 호출 시 조회 후 캐시. */
+  async getMe(force = false): Promise<Me | undefined> {
+    if (this.cachedMe && !force) return this.cachedMe;
+    const api = await this.getApi();
+    if (!api) return undefined;
+    try {
+      this.cachedMe = await api.me();
+      return this.cachedMe;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** 토큰 입력 → 검증(/auth/me) → 저장. 성공 시 사용자 이름 반환. */
   async login(): Promise<string | undefined> {
     const token = await vscode.window.showInputBox({
@@ -49,6 +70,7 @@ export class Session {
       const api = new OctaApi(getBaseUrl(), token);
       const me = await api.me();
       await this.secrets.store(SECRET_KEY, token);
+      this.cachedMe = me;
       await vscode.commands.executeCommand("setContext", "octanodes.loggedIn", true);
       this._onDidChange.fire();
       return me.name;
@@ -59,6 +81,7 @@ export class Session {
   }
 
   async logout(): Promise<void> {
+    this.cachedMe = undefined;
     await this.secrets.delete(SECRET_KEY);
     await vscode.commands.executeCommand("setContext", "octanodes.loggedIn", false);
     this._onDidChange.fire();
